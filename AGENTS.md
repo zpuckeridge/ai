@@ -1,0 +1,19 @@
+# AGENTS.md
+
+## Agent Steering
+
+- **Use semantic commits** when committing changes.
+- **Always run `bun run check`** after making changes or before committing. Fix every reported issue related to the task or files touched before proceeding.
+- **Australian English** for copy and messages; use **program** / **programs** in product copy for this domain term.
+- **Reserve `/components/ui` for primitives only.** Use shadcn/base-ui components only there; put custom components elsewhere (e.g. `/components`).
+- **Server Components by default.** Client Components only when needed.
+- **No direct `useEffect`.** Prefer derived state, event handlers, and data-fetching hooks (e.g. Convex); use `useMountEffect` only for one-time external sync on mount. See `.agents/skills/no-use-effect/SKILL.md`.
+- **Keep workflows up to date.** If workflows are modified within the app, update the `docs/app-workflows.md`.
+- **Do not preserve backward compatibility.** Remove obsolete paths instead of adding compatibility layers, fallbacks, or migrations.
+- **Choose the simplest implementation** that fully meets the current requirements. Avoid speculative abstractions, configuration, and indirection.
+- **Grow the system in layers.** Start from the smallest version that works end to end, and add each new capability on top of a product that already works. Never trade a working product for unfinished complexity.
+- **Keep components modular** and concerns clearly separated.
+- **Prefer established libraries** when they reduce overall complexity or improve reliability. Do not reimplement common functionality without a clear reason.
+- **Lean on existing dependencies** before writing your own implementation or adding packages. Do not assume a library lacks a capability without checking its documentation and types.
+- **Make architectural decisions for the long term.** Do not accept a stopgap that only works for now and is meant to be replaced later.
+- **Study established products** before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
