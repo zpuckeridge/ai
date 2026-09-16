@@ -14,7 +14,19 @@ Install skills with the **[skills](https://github.com/vercel-labs/skills)** CLI 
 bunx skills add zpuckeridge/ai
 ```
 
-That pulls this repository and registers its skill folders. Use `bunx skills --help` for other commands (e.g. list, remove). You can also use `npx skills` if you are not using Bun.
+That pulls this repository and registers its skill folders under `~/.cursor/skills/`. After install, type **`/rc`** in Agent chat — it should appear in the slash menu.
+
+Use `bunx skills --help` for other commands (e.g. list, remove). You can also use `npx skills` if you are not using Bun.
+
+**Already installed?** Re-run the same command to pick up new skills (`rc`). Then reload Cursor (or start a new Agent chat) so `/rc` shows in the picker.
+
+**Retire `/review-and-check`:** that old slash command lived as a Cursor **Command**, not in this repo. After installing `rc`:
+
+1. Cursor → **Customize → Commands** (or `~/.cursor/commands/review-and-check.md`)
+2. Delete **`review-and-check`**
+3. Keep **`/rc`** only
+
+A stub skill named `review-and-check` remains so an old `/review-and-check` still runs the same loop as `/rc` until you delete the command.
 
 ### Manual install
 
@@ -33,6 +45,8 @@ If you prefer not to use the CLI:
 
    ```text
    .cursor/skills/
+     rc/
+       SKILL.md
      ship/
        SKILL.md
      review/
@@ -45,6 +59,7 @@ If you prefer not to use the CLI:
 
    ```bash
    mkdir -p .cursor/skills
+   ln -sf "$(pwd)/skills/rc" .cursor/skills/rc
    ln -sf "$(pwd)/skills/ship" .cursor/skills/ship
    ln -sf "$(pwd)/skills/review" .cursor/skills/review
    ln -sf "$(pwd)/skills/ralph" .cursor/skills/ralph
@@ -52,7 +67,7 @@ If you prefer not to use the CLI:
 
 ### Verify
 
-In Cursor, skills should show up when the topic matches. You can open a `SKILL.md` and confirm the YAML frontmatter `name` and `description` fields are present—those help the agent choose the skill.
+In Cursor Agent chat, type `/` and look for **rc**. You can also open a `SKILL.md` and confirm the YAML frontmatter `name` and `description` fields are present.
 
 ---
 
@@ -60,9 +75,37 @@ In Cursor, skills should show up when the topic matches. You can open a `SKILL.m
 
 | Skill | One-line purpose | Typical triggers |
 | --- | --- | --- |
+| [**rc**](#rc) | Bugbot + security review + fix subagents + `bun run check` (React Doctor 100%, Ultracite clean) | **`/rc`** (replaces `/review-and-check`) |
 | [**ship**](#ship) | Review changes, run checks, semantic commit, push | “ship”, “verify” |
 | [**review**](#review) | Senior-style review of a diff (severity-ordered findings) | Paste diff, “review this PR”, “pre-merge review” |
 | [**ralph**](#ralph) | Loop: GitHub `agent` issues → implement → validate → PR → repeat | “run RALPH”, “RALPH for 3 iterations”, “continue RALPH” |
+
+---
+
+## rc
+
+**File:** [`skills/rc/SKILL.md`](skills/rc/SKILL.md)
+
+**What it does**
+
+1. **Bugbot** — one `bugbot` subagent on branch changes (by default).
+2. **Security review** — one `security-review` subagent on the current tree.
+3. **Fix subagents** — `generalPurpose` tasks to resolve every listed finding (batched/parallel when safe).
+4. **`bun run check`** — repeat until React Doctor is **100%** and Ultracite reports **no errors and no warnings**.
+
+**When to use it**
+
+- Pre-merge quality loop. Type **`/rc`** in Agent chat.
+
+**How to invoke**
+
+- **`/rc`** only. `/review-and-check` is retired (stub still forwards to this skill).
+
+**Requirements / notes**
+
+- Target repo must have `bun run check` (React Doctor + Ultracite).
+- Not done until all three pass: exit 0, React Doctor 100%, Ultracite zero errors **and** zero warnings.
+- Do not commit or open a PR unless asked.
 
 ---
 
@@ -165,6 +208,8 @@ A one-line rule pointing at “say ship → follow Ship skill” is fine; pastin
 
 ```text
 skills/
+  rc/SKILL.md
+  review-and-check/SKILL.md   # retired stub → rc
   ship/SKILL.md
   review/SKILL.md
   ralph/SKILL.md
