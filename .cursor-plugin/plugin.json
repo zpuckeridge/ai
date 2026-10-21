@@ -1,7 +1,7 @@
 {
   "name": "zpuckeridge-ai",
   "displayName": "Zacchary AI skills",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Personal Cursor skills and commands, including /rc (review + check).",
   "author": {
     "name": "Zacchary Puckeridge",
