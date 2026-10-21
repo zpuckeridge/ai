@@ -1,9 +1,10 @@
 ---
 name: rc
 description: >-
-  Bugbot, security review, fix every finding via subagents, then bun run
-  check until React Doctor is 100% and Ultracite is clean. Use for /rc or
-  pre-merge cleanup. Replaces /review-and-check.
+  Bugbot, security review and bun run check as three parallel subagents, list
+  every issue, fix with up to 6 subagents at a time, loop until React Doctor is
+  100% and Ultracite has zero errors and zero warnings, then commit and push.
+  Use for /rc or pre-merge cleanup. Replaces /review-and-check.
 disable-model-invocation: true
 ---
 
@@ -11,17 +12,28 @@ disable-model-invocation: true
 
 Run on the **active workspace repo root**. Do not compute the diff yourself before launching review subagents.
 
-**Diff default:** `branch changes` (merge-base with the repo default branch — committed, staged, and unstaged). Use `uncommitted changes` only when the user asks to review dirty/local work only.
+**Diff default:** `branch changes` (merge-base with the repo default branch: committed, staged and unstaged). Use `uncommitted changes` only when the user asks to review dirty/local work only.
 
-**Completion bar:** The workflow is **not done** until `bun run check` exits 0 **and** its output shows **React Doctor at 100%** and **Ultracite with no errors and no warnings**. Partial pass is failure.
+**Hard gate:** never finish, commit or push until **all** of these hold on the current tree:
 
-Do not commit or open a PR unless the user asked.
+1. `bun run check` exits **0**.
+2. **React Doctor** score is **100%**.
+3. **Ultracite** reports **zero errors and zero warnings**. Warnings are failures.
+4. No open Bugbot or security finding remains (fixed, or shown to be a false positive with evidence).
 
-## 1. Bugbot
+Anything less is failure. Do not accept "mostly green".
 
-Launch **exactly one** `bugbot` subagent (`subagent_type: "bugbot"`, `description: "Bugbot"`, `run_in_background: false` unless the user asked otherwise).
+## 1. Run all three checks in parallel
 
-Prompt:
+Launch **three separate subagents in the same turn** so they run in parallel (`run_in_background: false` unless the user asked otherwise):
+
+| # | Subagent | `subagent_type` | `description` |
+| --- | --- | --- | --- |
+| A | Bugbot | `bugbot` | `Bugbot` |
+| B | Security review | `security-review` | `Security Review` |
+| C | Check | `generalPurpose` | `bun run check` |
+
+**A. Bugbot prompt:**
 
 ```
 Full Repository Path: <absolute workspace path>
@@ -31,17 +43,7 @@ Change Description: <optional>
 Custom Instructions: <optional>
 ```
 
-Default `Diff` to **`branch changes`**. Do not compute or paste the diff yourself; the subagent resolves it.
-
-After it returns, **fix every finding** using [fix subagents](#3-fix-subagents). Then summarize with a compact markdown table (Severity, Location `file:line`, Finding), highest severity first, and note which rows you fixed.
-
-If the subagent fails, retry **once**. If it still fails, tell the user and continue to security review.
-
-## 2. Security review
-
-Launch **exactly one** `security-review` subagent (`subagent_type: "security-review"`, `description: "Security Review"`, `run_in_background: false` unless the user asked otherwise).
-
-Prompt:
+**B. Security review prompt:**
 
 ```
 Full Repository Path: <absolute workspace path>
@@ -49,74 +51,65 @@ Diff: branch changes | uncommitted changes
 Custom Instructions: <optional>
 ```
 
-After it returns, **fix every finding** via [fix subagents](#3-fix-subagents). Summarize the same way. Continue even if Bugbot already edited files; review and fix against the **current tree**.
+**C. Check prompt:**
 
-If the subagent fails, retry **once**. If it still fails, note that security review did not complete, then still run the check loop.
+```
+Full Repository Path: <absolute workspace path>
+Task: From the repo root run `bun run check` and capture full stdout/stderr. Do not edit any files.
+Report: exit code, React Doctor score (%), Ultracite error count and warning count, and every individual error/warning/failing React Doctor check as `path:line — rule — message`. Include the raw log tail if parsing is uncertain.
+```
 
-## 3. Fix subagents
+If `bun` or a `check` script is missing, subagent C reports it and the workflow stops at the gate (do not invent a substitute unless the user names one). If Bugbot or security review fails, retry it **once**; if it still fails, say so and do not claim a clean pass.
 
-After Bugbot or Security Review lists issues, **do not only fix them in the parent agent**. Spin up subagents to implement fixes.
+## 2. List all issues
 
-### When to use subagents
+Merge the three results into **one deduplicated list** before fixing anything. Show it as a table, highest severity first:
 
-- **Always** when there is more than one distinct finding, or any finding touches more than one file.
-- **Always** when findings span different areas (e.g. auth + UI + API).
-- For a **single trivial one-line fix** in one file, the parent may fix inline; still re-verify with the same gates as step 4.
+| # | Severity | Source | Location `file:line` | Issue |
+| --- | --- | --- | --- | --- |
 
-### How to launch
+- **Source:** `Bugbot`, `Security`, `React Doctor` or `Ultracite` (combine sources when the same issue is reported twice).
+- Every Ultracite warning and every failing React Doctor check is its own row.
 
-Use the `Task` tool with `subagent_type: "generalPurpose"` (use `explore` only for investigation that must precede a fix).
+## 3. Fix with subagents (max 6 at a time)
 
-- **Batching:** Group findings by file or subsystem. One subagent per batch is fine; run **in parallel** when batches do not touch the same files.
-- **Prompt shape** (include all of this):
+Do not fix in the parent, except a single trivial one-line fix in one file.
+
+- Group issues into batches by file or subsystem. **Two batches running together must never touch the same file.**
+- Launch fix subagents with `subagent_type: "generalPurpose"`, **at most 6 in parallel**. If there are more batches, wait for that wave to finish, then launch the next wave of up to 6.
+- Prompt shape:
 
   ```
   Full Repository Path: <absolute path>
-  Task: Fix the following review findings. Apply minimal, correct diffs. Match repo conventions. Do not commit unless explicitly asked.
+  Task: Fix the following issues. Apply minimal, correct diffs. Match repo conventions. Do not commit or push.
+  Gate: the result must keep React Doctor at 100% and Ultracite at zero errors and zero warnings.
 
-  Findings:
-  - [Severity] path:line — description
-  ...
+  Issues:
+  - [#] [Severity] [Source] path:line — description
 
-  When done: list what you changed (file + one line each). If a finding is a false positive, say why and what you verified instead of changing code.
+  When done: list what you changed (file + one line each). If an issue is a false positive, say why and what you verified instead of changing code.
   ```
 
-- Wait for each fix subagent to finish (`run_in_background: false` unless the user asked otherwise).
-- **Parent verifies:** skim diffs, then proceed. If a finding remains unfixed, launch another fix subagent or fix it in the parent — do not advance to "pass" with open review items.
+- Parent skims the diffs and marks each row fixed or false positive.
 
-## 4. `bun run check` (required pass)
+## 4. Re-check and loop
 
-From the repo root:
+Re-run step 1 (all three subagents in parallel) against the current tree, then steps 2 and 3 for anything new or remaining. Repeat until the hard gate passes.
 
-```bash
-bun run check
-```
+If the **same** issue survives **three** fix-and-recheck cycles unchanged, stop: report it verbatim and state that `/rc` did **not** pass. Do **not** commit or push in that case.
 
-If `check` is missing from `package.json`, say so and stop this step. If `bun` is missing, say so and do not invent a substitute unless the user names one.
+## 5. Commit and push
 
-### Pass criteria (all required)
+Only after the hard gate passes:
 
-1. Process **exit code 0**.
-2. **React Doctor:** score **100%** (no failing checks).
-3. **Ultracite:** **zero errors and zero warnings** in the check output.
+1. Review `git status` and `git diff`.
+2. Commit in **sensible grouped semantic commits** (e.g. `fix(auth): …`, `fix(ui): …`, `chore(lint): …`), grouping by concern rather than one commit per file or one giant commit. Never commit secrets or unrelated files.
+3. Push the current branch (`git push`, or `git push -u origin HEAD` if it has no upstream). Never force-push, and never push straight to the default branch unless the user is already working on it and asked for that.
 
-Warnings count as failure even if the process exits 0. Do not treat "mostly green" as done.
-
-### Fix loop
-
-1. Run `bun run check` and capture **full stdout/stderr**.
-2. If any pass criterion fails, launch one or more **fix subagents** with the complete log and explicit instruction to satisfy React Doctor 100% and Ultracite clean.
-3. Re-run `bun run check`.
-4. **Repeat until all pass criteria are met**.
-
-If the **same** failure persists unchanged after **three** full fix-and-recheck cycles, stop looping: report the remaining errors verbatim and state that the workflow did **not** pass. Do not claim success.
-
-## 5. Close
+## 6. Close
 
 One short recap:
 
-- **Bugbot:** count fixed / remaining (if any could not be fixed).
-- **Security:** count fixed / remaining.
-- **`bun run check`:** explicitly state React Doctor %, Ultracite errors/warnings, and exit code — **pass** only if all gates in step 4 passed.
-
-If review findings were fixed but check introduced new issues, that is expected — the check loop must still end green before you close.
+- **Issues:** total found, fixed, false positives (by source).
+- **Gate:** React Doctor %, Ultracite errors/warnings, `bun run check` exit code. **Pass** only if all hold.
+- **Commits:** list of commit subjects and the pushed branch.
